@@ -1,0 +1,54 @@
+# Shadow Hackers - Juego Multijugador TCP
+
+Este proyecto implementa el juego "Shadow Hackers" usando Sockets TCP en Java.
+
+## Estructura
+- **Servidor.java**: El servidor central que gestiona el estado del juego y los nodos.
+- **Cliente.java**: El cliente que usan los jugadores para conectarse.
+- **Dockerfile**: Archivo de configuración para desplegar el Servidor en la nube (Railway/Render).
+
+## Cómo ejecutar localmente
+
+1. **Compilar el código**:
+   ```bash
+   javac Servidor.java Cliente.java
+   ```
+
+2. **Iniciar el Servidor**:
+   ```bash
+   java Servidor
+   ```
+   El servidor empezará a escuchar en el puerto 12345 por defecto.
+
+3. **Iniciar Clientes (Jugadores)**:
+   Abre nuevas terminales para cada jugador:
+   ```bash
+   java Cliente
+   ```
+   (Por defecto se conecta a localhost:12345)
+
+## Cómo desplegar en Railway o Render
+
+Este tipo de aplicación (Socket TCP persistente) **NO funciona en Netlify**. Netlify es solo para webs estáticas.
+Debes usar **Railway** o **Render**.
+
+### Pasos para Railway/Render:
+1. Sube este código a un repositorio de GitHub.
+2. Crea un nuevo proyecto en Railway/Render seleccionando ese repositorio.
+3. La plataforma detectará el `Dockerfile` automáticamente.
+4. **Importante**:
+   - El código ya está preparado para leer el puerto de la nube (`System.getenv("PORT")`).
+   - Una vez desplegado, Railway/Render te dará una URL/Dominio (ej: `shadow-hackers.up.railway.app`).
+   
+### Conectar clientes al servidor en la nube:
+Cuando el servidor esté online, los alumnos deben ejecutar el cliente indicando la dirección del servidor:
+
+```bash
+java Cliente shadow-hackers.up.railway.app <PUERTO_ASIGNADO>
+```
+*Nota: En Railway, a veces necesitas exponer un puerto TCP específicamente en la configuración para obtener un puerto externo accesible.*
+
+## Comandos del Juego
+- `HACK <id>`: Intenta capturar un nodo (ej: `HACK 5`).
+- `STATUS`: Muestra quién controla cada nodo.
+- `EXIT`: Salir del juego.
