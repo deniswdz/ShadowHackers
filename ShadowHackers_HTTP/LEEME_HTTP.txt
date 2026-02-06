@@ -1,0 +1,35 @@
+# Shadow Hackers (Edición HTTP/Nube)
+
+Esta versión del juego ha sido modificada para funcionar **perfectamente en la nube** (Railway, Render, etc.) sin problemas de puertos ni firewalls.
+
+En lugar de Sockets TCP puros, utiliza **HTTP** para comunicarse, lo que garantiza compatibilidad total con cualquier servidor web gratuito.
+
+## 🚀 Cómo Desplegar en la Nube (Railway)
+
+1. Sube la carpeta `ShadowHackers_HTTP` a un repositorio de GitHub (o asegúrate de que Railway apunte a esta carpeta).
+   - *Truco*: En Railway, ve a `Settings` -> `Root Directory` y pon `/ShadowHackers_HTTP` si has subido todo el repo junto.
+2. Railway detectará el `Dockerfile` y desplegará la aplicación.
+3. Copia la URL pública que te den (ej: `https://mi-juego.up.railway.app`).
+
+## 🎮 Cómo Jugar (Alumnos)
+
+Los alumnos necesitan el archivo `Cliente.java` de esta carpeta.
+
+1. **Compilar**:
+   ```bash
+   javac Cliente.java
+   ```
+
+2. **Jugar**:
+   Solo necesitan la URL del servidor.
+   ```bash
+   # Sintaxis: java Cliente <URL> [NOMBRE]
+   java Cliente https://mi-juego.up.railway.app
+   ```
+
+¡Y listo! Sin puertos raros, sin ngrok, funciona detrás de cualquier proxy del instituto.
+
+## 🛠️ Diferencias Técnicas (Para el Profesor)
+- **Servidor**: Usa `com.sun.net.httpserver.HttpServer` (nativo de Java) en lugar de `ServerSocket`.
+- **Cliente**: Usa `HttpURLConnection` en lugar de `Socket`.
+- **Tiempo Real**: Se simula mediante "Polling" (el cliente pregunta cada 1 segundo si hay eventos nuevos).
