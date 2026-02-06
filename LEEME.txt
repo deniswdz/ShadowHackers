@@ -44,9 +44,9 @@ Debes usar **Railway** o **Render**.
 Cuando el servidor esté online, los alumnos deben ejecutar el cliente indicando la dirección del servidor:
 
 ```bash
-java Cliente shadow-hackers.up.railway.app <PUERTO_ASIGNADO>
+java Cliente shadowhackers-production.up.railway.app 443
 ```
-*Nota: En Railway, a veces necesitas exponer un puerto TCP específicamente en la configuración para obtener un puerto externo accesible.*
+*Nota: Al usar el puerto 443, el cliente detectará automáticamente la conexión segura (SSL).*
 
 ## Comandos del Juego
 - `HACK <id>`: Intenta capturar un nodo (ej: `HACK 5`).
