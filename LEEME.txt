@@ -48,7 +48,21 @@ java Cliente shadowhackers-production.up.railway.app 443
 ```
 *Nota: Al usar el puerto 443, el cliente detectará automáticamente la conexión segura (SSL).*
 
-## Comandos del Juego
-- `HACK <id>`: Intenta capturar un nodo (ej: `HACK 5`).
-- `STATUS`: Muestra quién controla cada nodo.
-- `EXIT`: Salir del juego.
+## 🎮 Guía de Juego: Shadow Hackers
+
+**Objetivo**: Convertirte en el mejor hacker acumulando la mayor puntuación posible controlando los nodos de la red.
+
+**Dinámica**:
+1. Al conectarte, introduce tu **Nombre de Hacker**.
+2. El sistema tiene **10 Nodos** (del 1 al 10).
+3. Ganas **10 Puntos** cada vez que hackeas un nodo con éxito.
+4. ¡Puedes robarle nodos a tus compañeros para ganar más puntos!
+
+**Lista de Comandos**:
+- `HACK <numero>`: Lanza un ciberataque al nodo indicado.
+  - *Ejemplo*: `HACK 5` (Captura el nodo 5).
+  - Si el nodo estaba libre o era de otro jugador, pasará a ser tuyo y ganarás puntos.
+- `STATUS`: Muestra el estado actual de la red.
+  - Verás la lista de dueños de cada nodo.
+  - Verás el **Ranking de Puntuaciones**.
+- `EXIT`: Desconectarse del servidor.
