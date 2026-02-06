@@ -1,6 +1,7 @@
 import java.io.*;
 import java.net.*;
 import java.util.Scanner;
+import javax.net.ssl.SSLSocketFactory;
 
 public class Cliente {
     public static void main(String[] args) {
@@ -12,7 +13,16 @@ public class Cliente {
 
         System.out.println("Conectando a " + host + ":" + port + "...");
 
-        try (Socket socket = new Socket(host, port)) {
+        Socket socket = null;
+        try {
+            // Detección automática de SSL si el puerto es 443 (común en Railway/Render)
+            if (port == 443) {
+                System.out.println("🔒 Detectado puerto seguro (443). Usando SSL/TLS...");
+                socket = SSLSocketFactory.getDefault().createSocket(host, port);
+            } else {
+                socket = new Socket(host, port);
+            }
+            
             System.out.println("¡Conectado al servidor Shadow Hackers!");
 
             // Hilo para recibir mensajes del servidor en tiempo real
@@ -30,7 +40,15 @@ public class Cliente {
                 }
             }
         } catch (IOException e) {
-            System.out.println("No se pudo conectar al servidor: " + e.getMessage());
+            System.out.println("❌ Error: No se pudo conectar al servidor.");
+            System.out.println("Detalles: " + e.getMessage());
+            if (port == 443) {
+                System.out.println("Nota: Si usas Railway/Render, asegúrate de que el dominio es correcto.");
+            }
+        } finally {
+            if (socket != null && !socket.isClosed()) {
+                try { socket.close(); } catch (IOException e) {}
+            }
         }
     }
 
@@ -51,7 +69,7 @@ public class Cliente {
                     System.out.println(mensajeServidor);
                 }
             } catch (IOException e) {
-                System.out.println("Desconectado del servidor.");
+                System.out.println("⚠️ Desconectado del servidor.");
                 System.exit(0);
             }
         }
