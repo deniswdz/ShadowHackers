@@ -1,154 +1,174 @@
+import com.sun.net.httpserver.HttpServer;
+import com.sun.net.httpserver.HttpHandler;
+import com.sun.net.httpserver.HttpExchange;
+
 import java.io.*;
-import java.net.*;
+import java.net.InetSocketAddress;
+import java.nio.charset.StandardCharsets;
 import java.util.*;
-import java.util.concurrent.*;
+import java.util.concurrent.ConcurrentHashMap;
 
 public class Servidor {
-    // Puerto por defecto (se puede sobrescribir con variable de entorno para la nube)
-    private static final int PORT = System.getenv("PORT") != null ? Integer.parseInt(System.getenv("PORT")) : 12345;
-    
-    // Estado del juego: ID del nodo -> Nombre del dueño ("Libre" si no tiene dueño)
+    // Puerto compatible con Railway (variable PORT) o 8080 local
+    private static final int PORT = System.getenv("PORT") != null ? Integer.parseInt(System.getenv("PORT")) : 8080;
+
+    // Estado del juego
     private static final Map<Integer, String> nodos = new ConcurrentHashMap<>();
-    // Puntuaciones: Nombre jugador -> Puntos
     private static final Map<String, Integer> puntuaciones = new ConcurrentHashMap<>();
-    // Lista de clientes conectados para enviar mensajes a todos (broadcast)
-    private static final Set<PrintWriter> clientes = ConcurrentHashMap.newKeySet();
+    
+    // Sistema de eventos (Chat/Log del juego)
+    // Guardamos una lista de eventos y cada cliente pide los que le faltan
+    private static final List<String> eventos = Collections.synchronizedList(new ArrayList<>());
 
-    public static void main(String[] args) {
-        System.out.println("Shadow Hackers Server iniciando...");
+    public static void main(String[] args) throws IOException {
+        // Inicializar juego
+        for (int i = 1; i <= 10; i++) nodos.put(i, "Libre");
+        registrarEvento(">>> SERVIDOR INICIADO");
+
+        // Crear servidor HTTP ligero
+        HttpServer server = HttpServer.create(new InetSocketAddress(PORT), 0);
         
-        // Inicializar 10 nodos como "Libre"
-        for (int i = 1; i <= 10; i++) {
-            nodos.put(i, "Libre");
-        }
+        // Endpoint para enviar comandos (HACK, LOGIN)
+        server.createContext("/api/comando", new ManejadorComando());
+        
+        // Endpoint para leer novedades (Polling)
+        server.createContext("/api/eventos", new ManejadorEventos());
+        
+        // Endpoint simple para verificar que funciona en navegador
+        server.createContext("/", exchange -> {
+            String response = "Shadow Hackers Server Online! Usa el Cliente Java para jugar.";
+            enviarRespuesta(exchange, 200, response);
+        });
 
-        try (ServerSocket serverSocket = new ServerSocket(PORT)) {
-            System.out.println("Servidor escuchando en puerto: " + PORT);
+        server.setExecutor(null); // Default executor
+        System.out.println("Servidor HTTP escuchando en el puerto " + PORT);
+        server.start();
+    }
 
-            while (true) {
-                // Aceptar nuevos jugadores
-                Socket socket = serverSocket.accept();
-                System.out.println("Nuevo jugador conectado: " + socket.getInetAddress());
+    // --- MANEJADORES ---
+
+    static class ManejadorComando implements HttpHandler {
+        @Override
+        public void handle(HttpExchange exchange) throws IOException {
+            if ("POST".equals(exchange.getRequestMethod())) {
+                String cuerpo = leerCuerpo(exchange);
+                // Formato esperado: "JUGADOR|COMANDO|ARGUMENTO"
+                String[] partes = cuerpo.split("\\|");
                 
-                // Crear un hilo para manejar a este jugador
-                new Thread(new ManejadorCliente(socket)).start();
+                if (partes.length < 2) {
+                    enviarRespuesta(exchange, 400, "Formato invalido");
+                    return;
+                }
+
+                String jugador = partes[0];
+                String comando = partes[1].toUpperCase();
+                String argumento = partes.length > 2 ? partes[2] : "";
+
+                String respuesta = procesarLogica(jugador, comando, argumento);
+                enviarRespuesta(exchange, 200, respuesta);
+            } else {
+                enviarRespuesta(exchange, 405, "Metodo no permitido");
             }
-        } catch (IOException e) {
-            e.printStackTrace();
         }
     }
 
-    // Clase interna para manejar cada cliente en un hilo separado
-    private static class ManejadorCliente implements Runnable {
-        private Socket socket;
-        private PrintWriter out;
-        private BufferedReader in;
-        private String nombreJugador;
-
-        public ManejadorCliente(Socket socket) {
-            this.socket = socket;
-        }
-
+    static class ManejadorEventos implements HttpHandler {
         @Override
-        public void run() {
+        public void handle(HttpExchange exchange) throws IOException {
+            // El cliente envia "ultimoEventoRecibido" (int)
+            String query = exchange.getRequestURI().getQuery();
+            int lastIndex = 0;
+            if (query != null && query.contains("index=")) {
+                lastIndex = Integer.parseInt(query.split("=")[1]);
+            }
+
+            StringBuilder respuesta = new StringBuilder();
+            
+            // Sincronizamos para leer la lista
+            synchronized (eventos) {
+                if (lastIndex < eventsSize()) {
+                    for (int i = lastIndex; i < eventsSize(); i++) {
+                        respuesta.append(eventos.get(i)).append("\n");
+                    }
+                }
+            }
+            
+            // Devolver también el nuevo índice
+            enviarRespuesta(exchange, 200, respuesta.toString());
+        }
+    }
+
+    // --- LOGICA DEL JUEGO ---
+
+    private static synchronized String procesarLogica(String jugador, String comando, String arg) {
+        puntuaciones.putIfAbsent(jugador, 0);
+
+        if (comando.equals("LOGIN")) {
+            registrarEvento(">>> " + jugador + " se ha conectado.");
+            return "Bienvenido " + jugador;
+        }
+        else if (comando.equals("HACK")) {
             try {
-                // Configurar streams de entrada y salida
-                out = new PrintWriter(socket.getOutputStream(), true);
-                in = new BufferedReader(new InputStreamReader(socket.getInputStream()));
+                int nodoId = Integer.parseInt(arg);
+                if (!nodos.containsKey(nodoId)) return "Error: Nodo inexistente";
                 
-                // Añadir este cliente a la lista de difusión
-                clientes.add(out);
-
-                // Pedir nombre o asignar uno temporal
-                out.println("Bienvenido a Shadow Hackers! Ingresa tu nombre:");
-                nombreJugador = in.readLine();
-                if (nombreJugador == null || nombreJugador.trim().isEmpty()) {
-                    nombreJugador = "Hacker-" + (int)(Math.random() * 1000);
+                String dueño = nodos.get(nodoId);
+                if (!dueño.equals(jugador)) {
+                    nodos.put(nodoId, jugador);
+                    puntuaciones.put(jugador, puntuaciones.get(jugador) + 10);
+                    registrarEvento("¡HACK! " + jugador + " capturó el NODO " + nodoId + " (era de " + dueño + ")");
+                    return "Hackeo exitoso!";
+                } else {
+                    return "Ya controlas ese nodo.";
                 }
-                puntuaciones.putIfAbsent(nombreJugador, 0);
-                
-                broadcast(">>> " + nombreJugador + " se ha unido al juego!");
-                out.println("Comandos: HACK <num_nodo>, STATUS, EXIT");
-
-                String mensaje;
-                while ((mensaje = in.readLine()) != null) {
-                    procesarComando(mensaje);
-                }
-            } catch (IOException e) {
-                System.out.println("Error con jugador " + nombreJugador);
-            } finally {
-                // Desconexión
-                try { socket.close(); } catch (IOException e) {}
-                clientes.remove(out);
-                if (nombreJugador != null) {
-                    broadcast("<<< " + nombreJugador + " ha abandonado el juego.");
-                }
+            } catch (NumberFormatException e) {
+                return "Error: ID de nodo invalido";
             }
         }
+        else if (comando.equals("STATUS")) {
+            StringBuilder sb = new StringBuilder("--- ESTADO ---\n");
+            // Nodos
+            new TreeMap<>(nodos).forEach((k, v) -> sb.append("Nodo ").append(k).append(": ").append(v).append("\n"));
+            // Puntos
+            sb.append("--- RANKING ---\n");
+            puntuaciones.forEach((k, v) -> sb.append(k).append(": ").append(v).append(" pts\n"));
+            return sb.toString();
+        }
+        
+        return "Comando desconocido";
+    }
 
-        // Lógica del juego y comandos
-        private void procesarComando(String comando) {
-            String[] partes = comando.trim().split(" ");
-            String accion = partes[0].toUpperCase();
+    // --- UTILIDADES ---
 
-            if (accion.equals("HACK")) {
-                if (partes.length < 2) {
-                    out.println("Uso: HACK <numero_nodo>");
-                    return;
-                }
-                try {
-                    int nodoId = Integer.parseInt(partes[1]);
-                    intentarHackeo(nodoId);
-                } catch (NumberFormatException e) {
-                    out.println("El ID del nodo debe ser un número.");
-                }
-            } else if (accion.equals("STATUS")) {
-                enviarEstado();
-            } else if (accion.equals("EXIT")) {
-                try { socket.close(); } catch (IOException e) {}
-            } else {
-                out.println("Comando desconocido. Usa: HACK, STATUS, EXIT");
+    private static void registrarEvento(String msg) {
+        synchronized (eventos) {
+            eventos.add(msg);
+            // Limpieza básica: si hay demasiados eventos, borrar antiguos para no llenar memoria
+            if (eventos.size() > 1000) {
+                eventos.subList(0, 100).clear();
             }
         }
+        System.out.println("[LOG] " + msg);
+    }
+    
+    private static int eventsSize() {
+        synchronized (eventos) { return eventos.size(); }
+    }
 
-        // Sincronización crítica: varios hilos pueden intentar hackear el mismo nodo a la vez
-        private synchronized void intentarHackeo(int nodoId) {
-            if (!nodos.containsKey(nodoId)) {
-                out.println("Error: El nodo " + nodoId + " no existe.");
-                return;
-            }
+    private static String leerCuerpo(HttpExchange exchange) throws IOException {
+        InputStreamReader isr = new InputStreamReader(exchange.getRequestBody(), StandardCharsets.UTF_8);
+        BufferedReader br = new BufferedReader(isr);
+        StringBuilder b = new StringBuilder();
+        String linea;
+        while ((linea = br.readLine()) != null) b.append(linea);
+        return b.toString();
+    }
 
-            String dueñoActual = nodos.get(nodoId);
-            
-            // Lógica simple: Siempre se puede hackear si no es tuyo
-            if (!dueñoActual.equals(nombreJugador)) {
-                nodos.put(nodoId, nombreJugador);
-                // Actualizar puntuación
-                puntuaciones.put(nombreJugador, puntuaciones.get(nombreJugador) + 10);
-                // Avisar a todos
-                broadcast("¡ALERTA! " + nombreJugador + " ha hackeado el NODO " + nodoId + " (antes: " + dueñoActual + ")");
-            } else {
-                out.println("Ya controlas el nodo " + nodoId);
-            }
-        }
-
-        private void enviarEstado() {
-            out.println("=== ESTADO DEL SISTEMA ===");
-            // Mostrar nodos ordenados
-            nodos.entrySet().stream()
-                .sorted(Map.Entry.comparingByKey())
-                .forEach(entry -> out.println("Nodo " + entry.getKey() + ": [" + entry.getValue() + "]"));
-            
-            out.println("--- PUNTUACIONES ---");
-            puntuaciones.forEach((k, v) -> out.println(k + ": " + v + " pts"));
-            out.println("==========================");
-        }
-
-        // Enviar mensaje a TODOS los jugadores conectados
-        private void broadcast(String msg) {
-            for (PrintWriter cliente : clientes) {
-                cliente.println(msg);
-            }
-        }
+    private static void enviarRespuesta(HttpExchange exchange, int codigo, String respuesta) throws IOException {
+        byte[] bytes = respuesta.getBytes(StandardCharsets.UTF_8);
+        exchange.sendResponseHeaders(codigo, bytes.length);
+        OutputStream os = exchange.getResponseBody();
+        os.write(bytes);
+        os.close();
     }
 }

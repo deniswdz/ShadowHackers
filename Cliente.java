@@ -1,77 +1,135 @@
 import java.io.*;
 import java.net.*;
 import java.util.Scanner;
-import javax.net.ssl.SSLSocketFactory;
 
 public class Cliente {
+    private static String SERVER_URL; // Ej: https://shadow-hackers.up.railway.app
+    private static String MI_NOMBRE;
+    private static int ultimoEvento = 0;
+    private static boolean ejecutando = true;
+
     public static void main(String[] args) {
-        // Si se pasa un argumento, úsalo como IP/Host, si no, usa localhost
-        String host = args.length > 0 ? args[0] : "localhost";
-        // El puerto debe coincidir con el del servidor (si es local 12345, si es nube será el asignado, 
-        // pero aquí definimos el de conexión por defecto o lo pasamos como segundo arg)
-        int port = args.length > 1 ? Integer.parseInt(args[1]) : 12345;
+        if (args.length < 1) {
+            System.out.println("Uso: java Cliente <URL_SERVIDOR> [NOMBRE]");
+            System.out.println("Ej: java Cliente https://mi-juego.up.railway.app HackerOne");
+            return;
+        }
 
-        System.out.println("Conectando a " + host + ":" + port + "...");
+        SERVER_URL = args[0];
+        // Quitar barra final si la tiene
+        if (SERVER_URL.endsWith("/")) SERVER_URL = SERVER_URL.substring(0, SERVER_URL.length() - 1);
+        
+        // Si no empieza por http, añadirlo (asumimos https para nube, http para local)
+        if (!SERVER_URL.startsWith("http")) {
+            SERVER_URL = "https://" + SERVER_URL; 
+        }
 
-        Socket socket = null;
-        try {
-            // Detección automática de SSL si el puerto es 443 (común en Railway/Render)
-            if (port == 443) {
-                System.out.println("🔒 Detectado puerto seguro (443). Usando SSL/TLS...");
-                socket = SSLSocketFactory.getDefault().createSocket(host, port);
-            } else {
-                socket = new Socket(host, port);
-            }
-            
-            System.out.println("¡Conectado al servidor Shadow Hackers!");
+        Scanner scanner = new Scanner(System.in);
 
-            // Hilo para recibir mensajes del servidor en tiempo real
-            new Thread(new EscuchaServidor(socket)).start();
+        // Obtener nombre
+        if (args.length > 1) {
+            MI_NOMBRE = args[1];
+        } else {
+            System.out.print("Introduce tu nombre de Hacker: ");
+            MI_NOMBRE = scanner.nextLine();
+        }
 
-            // Hilo principal para enviar comandos del usuario
-            PrintWriter out = new PrintWriter(socket.getOutputStream(), true);
-            Scanner scanner = new Scanner(System.in);
+        System.out.println("Conectando a " + SERVER_URL + " como " + MI_NOMBRE + "...");
+        
+        // 1. Enviar Login
+        enviarComando("LOGIN", "");
 
-            while (scanner.hasNextLine()) {
-                String comando = scanner.nextLine();
-                out.println(comando);
-                if (comando.equalsIgnoreCase("EXIT")) {
+        // 2. Iniciar Hilo de Escucha (Polling)
+        new Thread(() -> {
+            while (ejecutando) {
+                try {
+                    pollEventos();
+                    Thread.sleep(1000); // Consultar cada 1 segundo (Polling)
+                } catch (InterruptedException e) {
                     break;
                 }
             }
-        } catch (IOException e) {
-            System.out.println("❌ Error: No se pudo conectar al servidor.");
-            System.out.println("Detalles: " + e.getMessage());
-            if (port == 443) {
-                System.out.println("Nota: Si usas Railway/Render, asegúrate de que el dominio es correcto.");
+        }).start();
+
+        // 3. Bucle principal de comandos
+        System.out.println("¡Conectado! Comandos: HACK <n>, STATUS, EXIT");
+        while (ejecutando && scanner.hasNextLine()) {
+            String linea = scanner.nextLine();
+            String[] partes = linea.split(" ");
+            String cmd = partes[0].toUpperCase();
+
+            if (cmd.equals("EXIT")) {
+                ejecutando = false;
+                break;
+            } else if (cmd.equals("HACK")) {
+                if (partes.length > 1) enviarComando("HACK", partes[1]);
+                else System.out.println("Falta el numero de nodo.");
+            } else if (cmd.equals("STATUS")) {
+                enviarComando("STATUS", "");
+            } else {
+                System.out.println("Comando desconocido.");
             }
-        } finally {
-            if (socket != null && !socket.isClosed()) {
-                try { socket.close(); } catch (IOException e) {}
+        }
+        System.out.println("Desconectado.");
+    }
+
+    // --- FUNCIONES HTTP ---
+
+    private static void enviarComando(String comando, String arg) {
+        try {
+            URL url = new URL(SERVER_URL + "/api/comando");
+            HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+            conn.setRequestMethod("POST");
+            conn.setDoOutput(true);
+
+            // Cuerpo: "NOMBRE|COMANDO|ARGUMENTO"
+            String cuerpo = MI_NOMBRE + "|" + comando + "|" + arg;
+            
+            try (OutputStream os = conn.getOutputStream()) {
+                byte[] input = cuerpo.getBytes("utf-8");
+                os.write(input, 0, input.length);
             }
+
+            // Leer respuesta del servidor
+            try (BufferedReader br = new BufferedReader(new InputStreamReader(conn.getInputStream(), "utf-8"))) {
+                StringBuilder response = new StringBuilder();
+                String responseLine = null;
+                while ((responseLine = br.readLine()) != null) {
+                    response.append(responseLine.trim()).append("\n");
+                }
+                // Mostrar respuesta directa (ej: "Hackeo exitoso")
+                String res = response.toString().trim();
+                if (!res.isEmpty() && !comando.equals("LOGIN")) {
+                    System.out.println("[SISTEMA] " + res);
+                }
+            }
+        } catch (Exception e) {
+            System.out.println("Error enviando comando: " + e.getMessage());
         }
     }
 
-    // Clase interna para escuchar mensajes del servidor constantemente
-    private static class EscuchaServidor implements Runnable {
-        private Socket socket;
+    private static void pollEventos() {
+        try {
+            // GET /api/eventos?index=X
+            URL url = new URL(SERVER_URL + "/api/eventos?index=" + ultimoEvento);
+            HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+            conn.setRequestMethod("GET");
 
-        public EscuchaServidor(Socket socket) {
-            this.socket = socket;
-        }
-
-        @Override
-        public void run() {
-            try {
-                BufferedReader in = new BufferedReader(new InputStreamReader(socket.getInputStream()));
-                String mensajeServidor;
-                while ((mensajeServidor = in.readLine()) != null) {
-                    System.out.println(mensajeServidor);
+            if (conn.getResponseCode() == 200) {
+                try (BufferedReader br = new BufferedReader(new InputStreamReader(conn.getInputStream(), "utf-8"))) {
+                    String linea;
+                    while ((linea = br.readLine()) != null) {
+                        if (!linea.trim().isEmpty()) {
+                            System.out.println(linea);
+                            ultimoEvento++; // Incrementamos contador localmente
+                            // Nota: En un sistema real robusto, el servidor debería devolver el ID del último evento.
+                            // Aquí simplificamos asumiendo que recibimos todo en orden.
+                        }
+                    }
                 }
-            } catch (IOException e) {
-                System.out.println("⚠️ Desconectado del servidor.");
-                System.exit(0);
             }
+        } catch (Exception e) {
+            // Silencioso para no molestar si falla un poll puntual
         }
     }
 }
